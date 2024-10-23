@@ -22,25 +22,59 @@ import { environment } from 'src/environments/environment';
 })
 export class ProductService {
   private baseUrl: string = `${environment.apiUrl}/products`;
-  products$: Observable<Product[]>;
+  private productsSubject = new BehaviorSubject<Product[]>([]);
+  products$: Observable<Product[]> = this.productsSubject.asObservable();
+  mostExpensiveProduct$: Observable<Product>;
+  productsToLoad = 10;
 
   constructor(private http: HttpClient) {
     this.initProducts();
+    this.initMostExpensiveProduct();
   }
 
-  initProducts() {
+  private initMostExpensiveProduct() {
+    this.mostExpensiveProduct$ =
+      this
+      .products$
+      .pipe(
+        filter(products => products.length > 0),
+        switchMap(
+          products => of(products).pipe(
+            map(products => [...products].sort((p1, p2) => p1.price > p2.price ? -1 : 1)),
+            // [{p1}, {p2}, {p3}]
+            mergeAll(),
+            // {p1}, {p2}, {p3}
+            first()
+          )
+        )
+      )
+  }
+
+  initProducts(skip = 0, take = this.productsToLoad) {
     const params = {
+      _start: skip,
+      _limit: take,
       _sort: 'modifiedDate',
-      _order: 'desc',
-    };
+      _order: 'desc'
+    }
 
     const options = {
       params: params,
     };
 
-    this.products$ = this.http
+    this.http
       .get<Product[]>(this.baseUrl, options)
-      .pipe(delay(1500), tap(console.table));
+      .pipe(
+        delay(1500), // pour la demo...
+        tap(console.table),
+        shareReplay()
+      )
+      .subscribe(
+        newProducts => {
+          let currentProducts = this.productsSubject.value;
+          this.productsSubject.next(currentProducts.concat(newProducts))
+        }
+      );
   }
 
   insertProduct(newProduct: Product): Observable<Product> {
